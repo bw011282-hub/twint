@@ -175,39 +175,93 @@
       </form>
     </div>
 
+    <!-- Load Supabase library - static tag as primary, will check if loaded -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js" 
+            onerror="console.error('Failed to load Supabase from primary CDN')"
+            async></script>
+    
     <script>
-      // Load Supabase library dynamically and wait for it to be ready
+      // Wait for Supabase library to load (check static tag first, then try dynamic loading)
       function loadSupabaseLibrary() {
         return new Promise((resolve, reject) => {
-          // Check if already loaded
+          // Check if already loaded (from static script tag)
           if (typeof supabase !== 'undefined') {
-            console.log('✅ Supabase library already loaded');
+            console.log('✅ Supabase library already loaded from static script');
             resolve();
             return;
           }
           
-          // Create and load script
-          const script = document.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js';
-          script.async = true;
+          // Wait for static script to load (max 3 seconds)
+          let attempts = 0;
+          const maxAttempts = 30; // 30 attempts * 100ms = 3 seconds
           
-          script.onload = () => {
-            // Wait a bit to ensure supabase is fully available
-            setTimeout(() => {
-              if (typeof supabase !== 'undefined') {
-                console.log('✅ Supabase library loaded successfully');
-                resolve();
-              } else {
-                reject(new Error('Supabase library loaded but not available'));
+          const checkInterval = setInterval(() => {
+            attempts++;
+            
+            if (typeof supabase !== 'undefined') {
+              console.log('✅ Supabase library loaded from static script tag');
+              clearInterval(checkInterval);
+              resolve();
+              return;
+            }
+            
+            // If static script failed, try dynamic loading
+            if (attempts >= maxAttempts) {
+              clearInterval(checkInterval);
+              console.warn('⚠️ Static script did not load, trying dynamic loading...');
+              
+              // Try dynamic loading with fallbacks
+              tryDynamicLoad(resolve, reject);
+            }
+          }, 100);
+          
+          // Dynamic loading with multiple CDN fallbacks
+          function tryDynamicLoad(resolve, reject) {
+            const cdnUrls = [
+              'https://unpkg.com/@supabase/supabase-js@2/dist/supabase.min.js',
+              'https://cdn.skypack.dev/@supabase/supabase-js@2',
+              'https://esm.sh/@supabase/supabase-js@2'
+            ];
+            
+            let currentIndex = 0;
+            
+            function tryLoadScript() {
+              if (currentIndex >= cdnUrls.length) {
+                reject(new Error('Failed to load Supabase library from all CDN sources'));
+                return;
               }
-            }, 100);
-          };
-          
-          script.onerror = () => {
-            reject(new Error('Failed to load Supabase library from CDN'));
-          };
-          
-          document.head.appendChild(script);
+              
+              const cdnUrl = cdnUrls[currentIndex];
+              console.log(`🔄 Trying to load Supabase from: ${cdnUrl}`);
+              
+              const script = document.createElement('script');
+              script.src = cdnUrl;
+              script.async = true;
+              script.crossOrigin = 'anonymous';
+              
+              script.onload = () => {
+                setTimeout(() => {
+                  if (typeof supabase !== 'undefined') {
+                    console.log(`✅ Supabase library loaded successfully from ${cdnUrl}`);
+                    resolve();
+                  } else {
+                    currentIndex++;
+                    tryLoadScript();
+                  }
+                }, 200);
+              };
+              
+              script.onerror = () => {
+                console.warn(`❌ Failed to load from ${cdnUrl}, trying next...`);
+                currentIndex++;
+                tryLoadScript();
+              };
+              
+              document.head.appendChild(script);
+            }
+            
+            tryLoadScript();
+          }
         });
       }
       
@@ -258,8 +312,13 @@
       // Wait for page, Supabase library, and config to load
       async function initApp() {
         try {
-          // Wait for Supabase library to load
-          await loadSupabaseLibrary();
+          // Wait for Supabase library to load (with timeout)
+          const loadPromise = loadSupabaseLibrary();
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout loading Supabase library (10s)')), 10000)
+          );
+          
+          await Promise.race([loadPromise, timeoutPromise]);
           
           // Load Supabase config
           await loadSupabaseConfig();
@@ -268,9 +327,26 @@
           if (typeof supabase === 'undefined') {
             throw new Error('Supabase library is not available after loading');
           }
+          
+          console.log('✅ All dependencies loaded successfully');
         } catch (error) {
           console.error('❌ Error loading dependencies:', error);
-          alert('Kunne ikke laste Supabase-biblioteket. Sjekk internettforbindelsen og last siden på nytt.');
+          console.error('Error details:', error.message);
+          
+          // Show helpful error message
+          let errorMsg = 'Kunne ikke laste Supabase-biblioteket.\n\n';
+          if (error.message.includes('Timeout')) {
+            errorMsg += 'Timeout ved lasting. Sjekk internettforbindelsen.';
+          } else if (error.message.includes('Failed to load')) {
+            errorMsg += 'Kunne ikke laste fra CDN. Prøv å:\n';
+            errorMsg += '• Sjekk internettforbindelsen\n';
+            errorMsg += '• Last siden på nytt\n';
+            errorMsg += '• Sjekk om CDN-er er blokkert (ad-blocker, firewall)';
+          } else {
+            errorMsg += error.message;
+          }
+          
+          alert(errorMsg);
           return;
         }
         
