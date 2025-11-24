@@ -175,10 +175,8 @@
       </form>
     </div>
 
-    <!-- Load Supabase library - static tag as primary, will check if loaded -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js" 
-            onerror="console.error('Failed to load Supabase from primary CDN')"
-            async></script>
+    <!-- Load Supabase library - using jsDelivr with UMD bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" async></script>
     
     <script>
       // Wait for Supabase library to load (check static tag first, then try dynamic loading)
@@ -191,16 +189,21 @@
             return;
           }
           
-          // Wait for static script to load (max 3 seconds)
+          // Wait for static script to load (max 5 seconds)
           let attempts = 0;
-          const maxAttempts = 30; // 30 attempts * 100ms = 3 seconds
+          const maxAttempts = 50; // 50 attempts * 100ms = 5 seconds
           
           const checkInterval = setInterval(() => {
             attempts++;
             
-            if (typeof supabase !== 'undefined') {
+            // Check both window.supabase and global supabase
+            if (typeof supabase !== 'undefined' || typeof window.supabase !== 'undefined') {
               console.log('✅ Supabase library loaded from static script tag');
               clearInterval(checkInterval);
+              // Make sure supabase is globally available
+              if (typeof supabase === 'undefined' && typeof window.supabase !== 'undefined') {
+                window.supabase = window.supabase;
+              }
               resolve();
               return;
             }
@@ -208,19 +211,19 @@
             // If static script failed, try dynamic loading
             if (attempts >= maxAttempts) {
               clearInterval(checkInterval);
-              console.warn('⚠️ Static script did not load, trying dynamic loading...');
+              console.warn('⚠️ Static script did not load within 5 seconds, trying dynamic loading...');
               
               // Try dynamic loading with fallbacks
               tryDynamicLoad(resolve, reject);
             }
           }, 100);
           
-          // Dynamic loading with multiple CDN fallbacks
+          // Dynamic loading with multiple CDN fallbacks (using UMD bundles)
           function tryDynamicLoad(resolve, reject) {
             const cdnUrls = [
-              'https://unpkg.com/@supabase/supabase-js@2/dist/supabase.min.js',
-              'https://cdn.skypack.dev/@supabase/supabase-js@2',
-              'https://esm.sh/@supabase/supabase-js@2'
+              'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+              'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+              'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js'
             ];
             
             let currentIndex = 0;
@@ -323,9 +326,23 @@
           // Load Supabase config
           await loadSupabaseConfig();
           
-          // Double check that Supabase is available
-          if (typeof supabase === 'undefined') {
+          // Double check that Supabase is available (check both global and window)
+          if (typeof supabase === 'undefined' && typeof window.supabase === 'undefined') {
             throw new Error('Supabase library is not available after loading');
+          }
+          
+          // Ensure supabase is globally available
+          if (typeof supabase === 'undefined' && typeof window.supabase !== 'undefined') {
+            window.supabase = window.supabase;
+            // Try to make it globally available
+            try {
+              if (typeof window !== 'undefined') {
+                // Supabase should be available via window
+                console.log('✅ Supabase available via window.supabase');
+              }
+            } catch (e) {
+              console.warn('Could not set global supabase reference');
+            }
           }
           
           console.log('✅ All dependencies loaded successfully');
@@ -397,8 +414,15 @@
           console.warn("   Du kan også sette dem manuelt i window.SUPABASE_CONFIG for lokal testing.");
         }
         
-        // Initialize Supabase client
-        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // Initialize Supabase client (use window.supabase if available, otherwise global supabase)
+        const supabaseLib = window.supabase || (typeof supabase !== 'undefined' ? supabase : null);
+        if (!supabaseLib) {
+          console.error('❌ Supabase library is not available!');
+          alert('Supabase-biblioteket er ikke tilgjengelig. Last siden på nytt.');
+          return;
+        }
+        
+        const supabaseClient = supabaseLib.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         
         // Get table name from config (default: 'twint')
         const SUPABASE_TABLE = window.SUPABASE_CONFIG?.table || "twint";
